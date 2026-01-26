@@ -1,6 +1,6 @@
+{{- $analyticsRedis := include "tyk-pump.analytics_redis" . | fromYaml }}
 apiVersion: apps/v1
 kind: Deployment
-{{- $analyticsRedis := include "tyk-pump.analytics_redis" . | fromYaml -}}
 metadata:
   name: pump-{{ include "tyk-pump.fullname" . }}
   {{- if .Values.pump.annotations }}

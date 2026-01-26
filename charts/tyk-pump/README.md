@@ -66,7 +66,6 @@ Alternatively, you can use `--set` flag to set it in Tyk installation.
 ### Set Redis connection details (Required)
 Redis is Tyk Pump's primary database where it scrapes Tyk Gateway analytics from. 
 You may set `global.redis.addr` and `global.redis.pass` with redis connection string and password for Tyk Gateway respectively.
-If Gateway uses a separate analytics Redis, set `global.redis.analytics` and Pump will prefer those values.
 
 ### Pump Configurations
 

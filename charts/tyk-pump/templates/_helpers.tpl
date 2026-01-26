@@ -33,7 +33,7 @@ Create chart name and version as used by the chart label.
 {{- define "tyk-pump.analytics_redis" -}}
 {{- $redis := .Values.global.redis -}}
 {{- $analytics := default dict .Values.global.redis.analytics -}}
-{{- $merged := merge (deepCopy $redis) $analytics -}}
+{{- $merged := mergeOverwrite (deepCopy $redis) $analytics -}}
 {{- toYaml $merged -}}
 {{- end -}}
 
