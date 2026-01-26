@@ -1,0 +1,515 @@
+apiVersion: apps/v1
+kind: {{ .Values.gateway.kind }}
+metadata:
+  name: gateway-{{ include "tyk-gateway.fullname" . }}
+  {{- if .Values.gateway.annotations }}
+  annotations:
+  {{- toYaml .Values.gateway.annotations | nindent 4 }}
+  {{- end }}
+  labels:
+    app: gateway-{{ include "tyk-gateway.fullname" . }}
+    chart: {{ include "tyk-gateway.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+{{- if and (eq .Values.gateway.kind "Deployment") (not .Values.gateway.autoscaling.enabled) }}
+  replicas: {{ .Values.gateway.replicaCount }}
+{{- end }}
+  minReadySeconds: 5
+{{- if eq .Values.gateway.kind "Deployment" }}
+  strategy:
+{{- else }}
+  updateStrategy:
+{{- end }}
+{{- if ((.Values.gateway.strategy).type) }}
+    type: {{ .Values.gateway.strategy.type }}
+{{- else }}
+    # indicate which strategy we want for rolling update
+    type: RollingUpdate
+    rollingUpdate:
+{{- if eq .Values.gateway.kind "Deployment" }}
+      maxSurge: 2
+{{- end }}
+      maxUnavailable: 1
+{{- end }}
+  selector:
+    matchLabels:
+      app: gateway-{{ include "tyk-gateway.fullname" . }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      {{- if or .Values.gateway.podAnnotations (not .Values.global.secrets.useSecretName) }}
+      annotations:
+      {{- if not .Values.global.secrets.useSecretName }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+      {{- end }}
+      {{- if .Values.gateway.podAnnotations }}
+      {{ toYaml .Values.gateway.podAnnotations | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      labels:
+        app: gateway-{{ include "tyk-gateway.fullname" . }}
+        release: {{ .Release.Name }}
+        {{- with .Values.gateway.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}        
+    spec:
+    {{- if .Values.gateway.serviceAccountName }}
+      serviceAccountName: "{{ .Values.gateway.serviceAccountName }}"
+    {{- end }}    
+{{- if .Values.gateway.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.gateway.nodeSelector | indent 8 }}
+{{- end }}
+{{- if .Values.gateway.tolerations }}
+      tolerations:
+{{ toYaml .Values.gateway.tolerations | indent 8 }}
+{{- end }}
+{{- if .Values.gateway.affinity }}
+      affinity:
+{{ toYaml .Values.gateway.affinity | indent 8 }}
+{{- end }}
+{{- if .Values.gateway.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{ toYaml .Values.gateway.topologySpreadConstraints | indent 8 }}
+{{- end }}
+      {{- with .Values.gateway.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+      - name: "setup-directories"
+        image: "{{ .Values.global.imageRegistry }}{{ .Values.gateway.initContainers.setupDirectories.repository }}:{{ .Values.gateway.initContainers.setupDirectories.tag }}"
+        command: ['sh','-c','mkdir -p apps middleware policies && touch policies/policies.json']
+        workingDir: /mnt/tyk-gateway
+        {{- if .Values.gateway.containerSecurityContext }}
+        securityContext:
+        {{- toYaml .Values.gateway.containerSecurityContext | nindent 12 }}
+        {{- end }}      
+        resources:
+        {{- toYaml .Values.gateway.initContainers.setupDirectories.resources | nindent 12 }}
+        volumeMounts:
+          - name: tyk-scratch
+            mountPath: /mnt/tyk-gateway
+      containers:
+      - name: gateway-{{ .Chart.Name }}
+        image: "{{ .Values.global.imageRegistry }}{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
+        imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+        {{- if .Values.gateway.containerSecurityContext }}
+        securityContext:
+        {{- toYaml .Values.gateway.containerSecurityContext | nindent 12 }}
+        {{- end }}
+        env:
+          - name: TYK_GW_LISTENPORT
+            value: "{{.Values.gateway.containerPort}}"
+          {{ if .Values.gateway.useDashboardAppConfig.enabled }}
+          - name: TYK_GW_USEDBAPPCONFIGS
+            value: "true"
+          - name: TYK_GW_DBAPPCONFOPTIONS_CONNECTIONSTRING
+            {{- if .Values.gateway.useDashboardAppConfig.dashboardConnectionString }}
+            value: {{ .Values.gateway.useDashboardAppConfig.dashboardConnectionString | quote }}
+            {{- else }}
+            value: "{{ include "tyk-gateway.dash_proto" . }}://dashboard-svc-{{ .Release.Name }}-tyk-dashboard.{{ .Release.Namespace }}.svc:{{ .Values.global.servicePorts.dashboard}}"
+            {{- end }}
+          - name: TYK_GW_POLICIES_POLICYCONNECTIONSTRING
+            {{- if .Values.gateway.useDashboardAppConfig.policyConnectionString }}
+            value: {{ .Values.gateway.useDashboardAppConfig.policyConnectionString | quote }}
+            {{- else }}
+            value: "{{ include "tyk-gateway.dash_proto" . }}://dashboard-svc-{{ .Release.Name }}-tyk-dashboard.{{ .Release.Namespace }}.svc:{{ .Values.global.servicePorts.dashboard }}"
+            {{- end }}
+           {{- end }}
+          {{- if .Values.gateway.control.enabled }}
+          - name: TYK_GW_CONTROLAPIPORT
+            value: "{{ .Values.gateway.control.containerPort }}"
+          {{- end }}
+          - name: TYK_GW_OAS_VALIDATE_EXAMPLES
+            value: "{{ .Values.global.oasValidateExamples }}"
+          - name: TYK_GW_OAS_VALIDATE_SCHEMA_DEFAULTS
+            value: "{{ .Values.global.oasValidateSchemaDefaults }}"
+          - name: TYK_GW_ENABLEFIXEDWINDOWRATELIMITER
+            value: "{{ .Values.gateway.enableFixedWindowRateLimiter }}"
+          - name: TYK_GW_HTTPSERVEROPTIONS_ENABLEPATHPREFIXMATCHING
+            value: "{{ .Values.gateway.enablePathPrefixMatching }}"
+          - name: TYK_GW_HTTPSERVEROPTIONS_ENABLEPATHSUFFIXMATCHING
+            value: "{{ .Values.gateway.enablePathSuffixMatching }}"
+          - name: TYK_GW_HTTPSERVEROPTIONS_ENABLESTRICTROUTES
+            value: "{{ .Values.gateway.enableStrictRoutes }}"
+          {{- if .Values.global.streaming }}
+          - name: TYK_GW_STREAMING_ENABLED
+            value: {{ .Values.global.streaming.enabled | quote }}
+          {{- end }}
+          # Log system events configuration
+          - name: TYK_GW_LOGFORMAT
+            value: "{{ .Values.gateway.log.format }}"
+          - name: TYK_GW_LOGLEVEL
+            value: "{{ .Values.gateway.log.level }}"
+          - name: TYK_GW_ACCESSLOGS_ENABLED
+            value: "{{ .Values.gateway.accessLogs.enabled }}"
+            {{- if .Values.gateway.accessLogs.template }}
+          - name: TYK_GW_ACCESSLOGS_TEMPLATE
+            value: {{ .Values.gateway.accessLogs.template | quote }}
+            {{- end }}
+
+          {{- if .Values.global.redis.sslInsecureSkipVerify }}
+          - name: TYK_GW_STORAGE_SSLINSECURESKIPVERIFY
+            value: "{{ .Values.global.redis.sslInsecureSkipVerify }}"
+          {{- end }}
+          
+          # Redis TLS configurations
+          {{- if .Values.global.redis.useSSL }}
+          - name: TYK_GW_STORAGE_TLSMAXVERSION
+            value: "{{ .Values.global.redis.tlsMaxVersion }}"
+          - name: TYK_GW_STORAGE_TLSMINVERSION
+            value: "{{ .Values.global.redis.tlsMinVersion }}"
+          {{- end }}
+
+          {{- with .Values.global.redis }}
+          {{- if and .useSSL .caFile }}
+          - name: TYK_GW_STORAGE_CAFILE
+            value: "{{ .caFile }}"
+          {{- end }}
+          {{- end }}          
+
+          {{- with .Values.global.redis }}
+          {{- if and .useSSL .certFile .keyFile }}
+          - name: TYK_GW_STORAGE_CERTFILE
+            value: "{{ .certFile }}"
+          - name: TYK_GW_STORAGE_KEYFILE
+            value: "{{ .keyFile }}"  
+          {{- end }}
+          {{- end }}            
+
+          # Legacy support for Redis Cluster driver. Driver dropped in v3.0.0.
+          - name: REDIGOCLUSTER_SHARDCOUNT
+            value: "128"
+          - name: TYK_GW_STORAGE_TYPE
+            value: "redis"
+          - name: TYK_GW_STORAGE_ADDRS
+            value: {{ include "tyk-gateway.redis_url" . | quote }}
+          {{ if .Values.global.redis.enableSentinel }}
+          - name: TYK_GW_STORAGE_SENTINELPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "tyk-gateway.redis_sentinel_secret_name" . }}
+                key: {{ include "tyk-gateway.redis_sentinel_secret_key" . }}
+          - name: TYK_GW_STORAGE_MASTERNAME
+            value: "{{- .Values.global.redis.masterName -}}"
+         {{ else if .Values.global.redis.enableCluster }}
+          - name: TYK_GW_STORAGE_ENABLECLUSTER
+            value: "true"
+         {{ else }}
+          - name: TYK_GW_STORAGE_ENABLECLUSTER
+            value: "false"
+         {{ end }}
+
+          - name: TYK_GW_STORAGE_DATABASE
+            value: "{{ default "0" .Values.global.redis.storage.database }}"
+          - name: TYK_GW_STORAGE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "tyk-gateway.redis_secret_name" . }}
+                key: {{ include "tyk-gateway.redis_secret_key" . }}
+          - name: TYK_GW_STORAGE_USESSL
+            value: "{{ default "false" .Values.global.redis.useSSL }}"
+          - name: TYK_GW_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: {{ if .Values.global.secrets.useSecretName }} {{ .Values.global.secrets.useSecretName }} {{ else }} secrets-{{ include "tyk-gateway.fullname" . }} {{ end}}
+                key: APISecret
+          - name: TYK_GW_NODESECRET
+            valueFrom:
+              secretKeyRef:
+                name: {{ if .Values.global.secrets.useSecretName }} {{ .Values.global.secrets.useSecretName }} {{ else }} secrets-{{ include "tyk-gateway.fullname" . }} {{ end}}
+                key: APISecret
+
+         
+          - name: TYK_GW_HTTPSERVEROPTIONS_USESSL
+            value: "{{ .Values.global.tls.gateway }}"
+          - name: TYK_GW_POLICIES_ALLOWEXPLICITPOLICYID
+            value: "true"
+          - name: TYK_GW_TEMPLATEPATH
+            value: "/opt/tyk-gateway/templates"
+          - name: TYK_GW_TYKJSPATH
+            value: "/opt/tyk-gateway/js/tyk.js"
+          - name: TYK_GW_MIDDLEWAREPATH
+            value: "/mnt/tyk-gateway/middleware"
+          - name: TYK_GW_APPPATH
+            value: "/mnt/tyk-gateway/apps"
+          - name: TYK_GW_POLICIES_POLICYPATH
+            value: "/mnt/tyk-gateway/policies"
+          - name: TYK_GW_STORAGE_MAXIDLE
+            value: "{{ default "100" .Values.global.redis.maxIdle }}"
+          - name: TYK_GW_ENABLENONTRANSACTIONALRATELIMITER
+            value: "true"
+
+          - name: TYK_GW_POLICIES_POLICYSOURCE
+        {{- if .Values.global.remoteControlPlane.enabled }}
+            value: "rpc"
+        {{- else if .Values.gateway.useDashboardAppConfig.enabled }}
+            value: "service"
+        {{- else}}
+            value: "file"
+        {{- end}}
+
+        # Set this environment variable only if either analyticsEnabled or global.components.pump is set
+        {{ if or .Values.gateway.analyticsEnabled ((.Values.global.components).pump) }}
+          - name: TYK_GW_ENABLEANALYTICS
+          {{- if .Values.gateway.analyticsEnabled }}
+            value: "{{ .Values.gateway.analyticsEnabled }}"
+          {{- else }}
+            value: "{{ .Values.global.components.pump }}"
+          {{- end}}
+        {{- end}}
+
+          - name: TYK_GW_ANALYTICSCONFIG_TYPE
+            value: "{{.Values.gateway.analyticsConfigType}}"
+        {{- if .Values.global.remoteControlPlane.enabled }}
+          - name: TYK_GW_SLAVEOPTIONS_USERPC
+            value: "true"
+          - name: TYK_GW_AUTHOVERRIDE_FORCEAUTHPROVIDER
+            value: "true"
+          - name: TYK_GW_AUTHOVERRIDE_AUTHPROVIDER_STORAGEENGINE
+            value: "rpc"
+          - name: TYK_GW_SLAVEOPTIONS_RPCKEY
+            {{ if .Values.global.remoteControlPlane.useSecretName }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.global.remoteControlPlane.useSecretName }}
+                key: orgId
+            {{ else }}
+            value: "{{ .Values.global.remoteControlPlane.orgId }}"
+            {{ end }}
+          - name: TYK_GW_SLAVEOPTIONS_APIKEY
+            {{ if .Values.global.remoteControlPlane.useSecretName }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.global.remoteControlPlane.useSecretName }}
+                key: userApiKey
+            {{ else }}
+            value: "{{  .Values.global.remoteControlPlane.userApiKey }}"
+            {{ end }}
+          - name: TYK_GW_SLAVEOPTIONS_GROUPID
+            {{ if .Values.global.remoteControlPlane.useSecretName }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.global.remoteControlPlane.useSecretName }}
+                key: groupID
+            {{ else }}
+            value: "{{ .Values.global.remoteControlPlane.groupID}}"
+            {{ end }}
+          - name: TYK_GW_SLAVEOPTIONS_CONNECTIONSTRING
+            value: "{{ .Values.global.remoteControlPlane.connectionString }}"
+          - name: TYK_GW_SLAVEOPTIONS_USESSL
+            value: "{{ .Values.global.remoteControlPlane.useSSL}}"
+          - name: TYK_GW_SLAVEOPTIONS_SSLINSECURESKIPVERIFY
+            value: "{{ .Values.global.remoteControlPlane.sslInsecureSkipVerify}}"
+        {{- end}}
+          - name: TYK_GW_POLICIES_POLICYRECORDNAME
+        {{- if .Values.global.remoteControlPlane.enabled }}
+            value: "tyk_policies"
+        {{- else}}
+            value: "/mnt/tyk-gateway/policies/policies.json"
+        {{- end}}
+          - name: TYK_GW_HASHKEYS
+            value: {{ .Values.global.hashKeys | quote }}
+          - name: TYK_GW_HASHKEYFUNCTION
+            value: "{{ .Values.gateway.hashKeyFunction }}"
+
+          - name: TYK_GW_HTTPSERVEROPTIONS_ENABLEWEBSOCKETS
+            value: "true"
+          - name: TYK_GW_HTTPSERVEROPTIONS_MINVERSION
+            value: "771"
+          - name: TYK_GW_HTTPSERVEROPTIONS_XFFDEPTH
+            value: {{ default 1 .Values.gateway.httpsServerOptions.xffDepth | quote }}
+
+          - name: TYK_GW_HTTPSERVEROPTIONS_CERTIFICATES
+            value: '{{ .Values.gateway.tls.certificates | toJson }}'
+          - name: TYK_GW_HTTPSERVEROPTIONS_SSLINSECURESKIPVERIFY
+            value: {{ .Values.gateway.tls.insecureSkipVerify | quote }}
+          - name: TYK_GW_ALLOWINSECURECONFIGS
+            value: {{ .Values.gateway.allowInsecureConfigs | quote }}
+          - name: TYK_GW_COPROCESSOPTIONS_ENABLECOPROCESS
+            value: "true"
+          - name: TYK_GW_GLOBALSESSIONLIFETIME
+            value: {{ .Values.gateway.globalSessionLifetime | quote }}
+          - name: TYK_GW_MAXIDLECONNSPERHOST
+            value: {{ .Values.gateway.maxIdleConnectionsPerHost | quote }}
+          - name: TYK_GW_ENABLECUSTOMDOMAINS
+            value: {{ .Values.gateway.enableCustomDomains | quote }}
+          - name: TYK_GW_PIDFILELOCATION
+            value: "/mnt/tyk-gateway/tyk.pid"
+
+        {{- if .Values.gateway.sharding.enabled }}
+          - name: TYK_GW_DBAPPCONFOPTIONS_NODEISSEGMENTED
+            value: "{{ .Values.gateway.sharding.enabled }}"
+          - name: TYK_GW_DBAPPCONFOPTIONS_TAGS
+            value: "{{ .Values.gateway.sharding.tags }}"
+        {{- else }}
+          - name: TYK_GW_DBAPPCONFOPTIONS_NODEISSEGMENTED
+            value: "false"
+        {{- end }}
+
+        {{- if .Values.gateway.opentelemetry.enabled }}
+          - name: TYK_GW_OPENTELEMETRY_ENABLED
+            value: "{{ .Values.gateway.opentelemetry.enabled }}"
+          - name: TYK_GW_OPENTELEMETRY_EXPORTER
+            value: "{{ .Values.gateway.opentelemetry.exporter }}"
+          - name: TYK_GW_OPENTELEMETRY_ENDPOINT
+            value: "{{ .Values.gateway.opentelemetry.endpoint}}"
+            {{- if .Values.gateway.opentelemetry.headers }}
+          - name: TYK_GW_OPENTELEMETRY_HEADERS
+            value: "{{ include "otel-headers" . }}"
+            {{- end }}
+          - name: TYK_GW_OPENTELEMETRY_CONNECTIONTIMEOUT
+            value: "{{ .Values.gateway.opentelemetry.connectionTimeout }}"
+          - name: TYK_GW_OPENTELEMETRY_RESOURCENAME
+            value: "{{ .Values.gateway.opentelemetry.resourceName }}"
+          - name: TYK_GW_OPENTELEMETRY_SPANPROCESSORTYPE
+            value: "{{ .Values.gateway.opentelemetry.spanProcessorType }}"
+          - name: TYK_GW_OPENTELEMETRY_CONTEXTPROPAGATION
+            value: "{{ .Values.gateway.opentelemetry.contextPropagation }}"
+
+          {{- if (.Values.gateway.opentelemetry.tls).enabled }}
+          - name: TYK_GW_OPENTELEMETRY_TLS_ENABLE
+            value: "{{ .Values.gateway.opentelemetry.tls.enabled }}"
+          - name: TYK_GW_OPENTELEMETRY_TLS_INSECURESKIPVERIFY
+            value: {{ .Values.gateway.opentelemetry.tls.insecureSkipVerify | quote }}
+
+          {{- if .Values.gateway.opentelemetry.tls.certFileName }}
+          - name: TYK_GW_OPENTELEMETRY_TLS_CERTFILE
+            value:  {{ include "otel-tlsCertPath" . | quote }}
+          {{- end }}
+
+          {{- if .Values.gateway.opentelemetry.tls.keyFileName }}
+          - name: TYK_GW_OPENTELEMETRY_TLS_KEYFILE
+            value:  {{ include "otel-tlsKeyPath" . | quote }}
+          {{- end }}
+
+          {{- if .Values.gateway.opentelemetry.tls.caFileName }}
+          - name: TYK_GW_OPENTELEMETRY_TLS_CAFILE
+            value:  {{ include "otel-tlsCAPath" . | quote }}
+          {{- end }}
+
+          - name: TYK_GW_OPENTELEMETRY_TLS_MAXVERSION
+            value: "{{ .Values.gateway.opentelemetry.tls.maxVersion}}"
+          - name: TYK_GW_OPENTELEMETRY_TLS_MINVERSION
+            value:  "{{ .Values.gateway.opentelemetry.tls.minVersion}}"
+          {{- end }}
+
+          - name: TYK_GW_OPENTELEMETRY_SAMPLING_TYPE
+            value: "{{ .Values.gateway.opentelemetry.sampling.type }}"
+          - name: TYK_GW_OPENTELEMETRY_SAMPLING_RATE
+            value: "{{ .Values.gateway.opentelemetry.sampling.rate }}"
+          - name: TYK_GW_OPENTELEMETRY_SAMPLING_PARENTBASED
+            value: "{{ .Values.gateway.opentelemetry.sampling.parentBased }}"
+        {{- end }}
+
+        {{- if (.Values.global.mdcbSynchronizer).enabled}}
+          - name: TYK_GW_SLAVEOPTIONS_SYNCHRONISERENABLED
+            value: "{{ .Values.global.mdcbSynchronizer.enabled }}"
+          {{- if (.Values.global.mdcbSynchronizer).keySpaceSyncInterval }}
+          - name: TYK_GW_SLAVEOPTIONS_KEYSPACESYNCINTERVAL
+            value: "{{ .Values.global.mdcbSynchronizer.keySpaceSyncInterval }}"
+          {{- end }}
+        {{- end }}
+
+        {{- if .Values.gateway.extraEnvs }}
+        {{- include "tyk-gateway.tplvalues.render" ( dict "value" .Values.gateway.extraEnvs "context" $ ) | nindent 10 }}
+        {{- end }}
+        workingDir: /opt/tyk-gateway
+        ports:
+        - containerPort: {{ .Values.gateway.containerPort }}
+        {{- if .Values.gateway.control.enabled }}
+        - containerPort: {{ .Values.gateway.control.containerPort }}
+        {{- end }}
+        resources:
+{{ toYaml .Values.gateway.resources | indent 12 }}
+        volumeMounts:
+          {{ if .Values.global.tls.gateway }}
+          - name: {{ .Values.gateway.tls.secretName }}
+            mountPath: {{ .Values.gateway.tls.certificatesMountPath }}
+          {{ end }}
+
+          {{- with .Values.global.redis }}
+          {{- if and .useSSL .volumeName .certificatesMountPath }}
+          - name: {{ .volumeName }}
+            mountPath: {{ .certificatesMountPath }}
+          {{- end }}
+          {{- end }}         
+
+          {{- if (.Values.gateway.opentelemetry.tls).certificateSecretName}}
+          - name: {{.Values.gateway.opentelemetry.tls.certificateSecretName}}
+            mountPath: "/etc/ssl/certs/"
+          {{- end}}
+
+          - name: tyk-scratch
+            mountPath: /mnt/tyk-gateway
+          {{- if .Values.gateway.extraVolumeMounts }}
+          {{- include "tyk-gateway.tplvalues.render" (dict "value" .Values.gateway.extraVolumeMounts "context" $) | nindent 10 }}
+          {{- end }}
+        livenessProbe:
+          {{- if .Values.gateway.livenessProbe }}
+          {{- toYaml .Values.gateway.livenessProbe | nindent 10}}
+          {{- else }}
+          httpGet:
+            scheme: "HTTP{{ if .Values.global.tls.gateway }}S{{ end }}"
+            path: /hello
+            {{- if and .Values.gateway.control.enabled }}
+            port: {{ .Values.gateway.control.containerPort }}
+            {{- else }}
+            port: {{ .Values.gateway.containerPort }}
+            {{- end }}
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 3
+          failureThreshold: 2
+          {{- end }}
+        readinessProbe:
+          {{- if .Values.gateway.readinessProbe }}
+          {{- toYaml .Values.gateway.readinessProbe | nindent 10}}
+          {{- else }}
+          httpGet:
+            scheme: "HTTP{{ if .Values.global.tls.gateway }}S{{ end }}"
+            path: /hello
+            {{- if and .Values.gateway.control.enabled }}
+            port: {{ .Values.gateway.control.containerPort }}
+            {{- else }}
+            port: {{ .Values.gateway.containerPort }}
+            {{- end }}
+          initialDelaySeconds: 1
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+          {{- end }}
+        {{- if .Values.gateway.startupProbe }}
+        startupProbe: {{- toYaml .Values.gateway.startupProbe | nindent 10}}
+        {{- end }}
+      {{- with .Values.gateway.extraContainers }}
+      {{- include "tyk-gateway.tplvalues.render" (dict "value" . "context" $) | nindent 6 }}
+      {{- end }}
+      {{- if .Values.gateway.securityContext }}
+      securityContext:
+      {{- toYaml .Values.gateway.securityContext | nindent 10 }}
+      {{- end }}
+      volumes:
+        - name: tyk-scratch
+          emptyDir: {}
+        {{ if .Values.global.tls.gateway }}
+        - name: {{ .Values.gateway.tls.secretName }}
+          secret:
+            secretName: {{ .Values.gateway.tls.secretName }}
+        {{ end }}
+        {{- if .Values.gateway.extraVolumes }}
+        {{- include "tyk-gateway.tplvalues.render" (dict "value" .Values.gateway.extraVolumes "context" $) | nindent 8 }}
+        {{- end }}
+        {{- if (.Values.gateway.opentelemetry.tls).certificateSecretName }}
+        - name: {{ .Values.gateway.opentelemetry.tls.certificateSecretName }}
+          secret:
+            secretName: {{ .Values.gateway.opentelemetry.tls.certificateSecretName }}
+        {{- end }}
+        {{- with .Values.global.redis }}
+        {{- if and .useSSL .secretName .volumeName }}
+        - name: {{ .volumeName }}
+          secret:
+            secretName: {{ .secretName }}
+        {{- end }}
+        {{- end }}

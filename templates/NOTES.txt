@@ -1,0 +1,30 @@
+Thank you for installing Tyk OSS Chart. Your release is named {{ .Release.Name }}.
+At this point, Tyk Gateway {{- if .Values.global.components.pump }} and Tyk Pump are {{- else }} is {{- end }} fully installed and should be accessible.
+
+{{ $gwSvcName := (include "tyk-oss.gwControlServiceName" . )  }}
+{{- $port := (include "tyk-oss.gwControlPort" . ) -}}
+To quickly test everything is ok, you can port-forward Tyk Gateway pod:
+    kubectl port-forward --namespace {{ .Release.Namespace }} service/{{ $gwSvcName }} {{ $port }}:{{ $port }}
+    curl localhost:{{ $port }}/hello
+
+=== API Secret (TYK_GW_SECRET) ===
+{{- if not .Values.global.secrets.useSecretName -}}
+{{ $gwFullName := (include "tyk-gateway.fullname" (index .Subcharts "tyk-gateway")) }}
+    export TYK_GW_SECRET=$(kubectl get secrets --namespace {{ .Release.Namespace }} secrets-{{- $gwFullName }} -o jsonpath="{.data.APISecret}" | base64 --decode)
+{{- else }}
+    export TYK_GW_SECRET=$(kubectl get secret --namespace {{ .Release.Namespace }} {{ .Values.global.secrets.useSecretName }} -o jsonpath="{.data.APISecret}" | base64 --decode)
+{{- end }}
+
+===================================================
+  Manage Ingress resources and APIs on Kubernetes
+===================================================
+You might want to install Tyk Operator next to manage Ingress resources or manage your APIs.
+Please check Tyk Operator documentation at https://tyk.io/docs/tyk-operator/
+{{ if .Values.operatorSecret.enabled }}
+=== Tyk Operator Secret (tyk-operator-conf) ===
+The `tyk-operator-conf` secret, required for Tyk Operator to establish a connection with Tyk Gateway, is generated in the {{ .Release.Namespace }} namespace.
+
+If API Secret of Tyk Gateway has configured via `global.secret.useSecretName` field, ensure that the `TYK_AUTH` field in the `tyk-operator-conf` secret contains the API secret of Tyk Gateway. This step ensures that Tyk Operator correctly identifies the API secret.
+
+    NOTE: After updating `tyk-operator-conf`, make sure that Tyk Operator pod is restarted.
+{{- end }}
