@@ -99,7 +99,7 @@ Resolve analytics Redis by overlaying global.redis.analytics onto global.redis.
 {{- define "tyk-oss.analytics_redis" -}}
 {{- $redis := default dict .Values.global.redis -}}
 {{- $analytics := default dict (index $redis "analytics") -}}
-{{- $merged := merge (deepCopy $redis) $analytics -}}
+{{- $merged := mergeOverwrite (deepCopy $redis) $analytics -}}
 {{- toYaml $merged -}}
 {{- end -}}
 
