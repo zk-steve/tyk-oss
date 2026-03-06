@@ -168,3 +168,67 @@ redisSentinelPass
 redisSentinelPass
 {{- end -}}
 {{- end -}}
+
+{{/*
+Override tyk-pump Redis helpers so analytics Redis values can be shared with gateway.
+*/}}
+{{- define "tyk-pump.redis_url" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if $redis.addrs -}}
+{{ join "," $redis.addrs }}
+{{- else -}}
+redis.{{ .Release.Namespace }}.svc:6379
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-pump.redis_secret_name" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if $redis.passSecret -}}
+{{- if $redis.passSecret.name -}}
+{{ $redis.passSecret.name }}
+{{- else -}}
+secrets-{{ include "tyk-pump.fullname" . }}
+{{- end -}}
+{{- else -}}
+secrets-{{ include "tyk-pump.fullname" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-pump.redis_secret_key" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if $redis.passSecret -}}
+{{- if $redis.passSecret.keyName -}}
+{{ $redis.passSecret.keyName }}
+{{- else -}}
+redisPass
+{{- end -}}
+{{- else -}}
+redisPass
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-pump.redis_sentinel_secret_name" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if and $redis.enableSentinel $redis.passSecret -}}
+{{- if $redis.passSecret.name -}}
+{{ $redis.passSecret.name }}
+{{- else -}}
+secrets-{{ include "tyk-pump.fullname" . }}
+{{- end -}}
+{{- else -}}
+secrets-{{ include "tyk-pump.fullname" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-pump.redis_sentinel_secret_key" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if and $redis.enableSentinel $redis.passSecret -}}
+{{- if $redis.passSecret.sentinelKeyName -}}
+{{ $redis.passSecret.sentinelKeyName }}
+{{- else -}}
+redisSentinelPass
+{{- end -}}
+{{- else -}}
+redisSentinelPass
+{{- end -}}
+{{- end -}}
