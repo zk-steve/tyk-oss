@@ -92,3 +92,79 @@ http
 {{- define "tyk-oss.gwControlURL" -}}
     {{ printf "%v://%v.%v.svc:%v" (include "tyk-oss.gw_proto" . ) (include "tyk-oss.gwControlServiceName" . )  .Release.Namespace (include "tyk-oss.gwControlPort" . ) }}
 {{- end -}}
+
+{{/*
+Resolve analytics Redis by overlaying global.redis.analytics onto global.redis.
+*/}}
+{{- define "tyk-oss.analytics_redis" -}}
+{{- $redis := default dict .Values.global.redis -}}
+{{- $analytics := default dict (index $redis "analytics") -}}
+{{- $merged := merge (deepCopy $redis) $analytics -}}
+{{- toYaml $merged -}}
+{{- end -}}
+
+{{/*
+Override tyk-gateway Redis helpers so analytics Redis values can be shared with pump.
+*/}}
+{{- define "tyk-gateway.redis_url" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if $redis.addrs -}}
+{{ join "," $redis.addrs }}
+{{- else if and $redis.host $redis.port -}}
+{{ $redis.host }}:{{ $redis.port }}
+{{- else -}}
+redis.{{ .Release.Namespace }}.svc:6379
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.redis_secret_name" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if $redis.passSecret -}}
+{{- if $redis.passSecret.name -}}
+{{ $redis.passSecret.name }}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.redis_secret_key" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if $redis.passSecret -}}
+{{- if $redis.passSecret.keyName -}}
+{{ $redis.passSecret.keyName }}
+{{- else -}}
+redisPass
+{{- end -}}
+{{- else -}}
+redisPass
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.redis_sentinel_secret_name" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if and $redis.enableSentinel $redis.passSecret -}}
+{{- if $redis.passSecret.name -}}
+{{ $redis.passSecret.name }}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.redis_sentinel_secret_key" -}}
+{{- $redis := include "tyk-oss.analytics_redis" . | fromYaml -}}
+{{- if and $redis.enableSentinel $redis.passSecret -}}
+{{- if $redis.passSecret.sentinelKeyName -}}
+{{ $redis.passSecret.sentinelKeyName }}
+{{- else -}}
+redisSentinelPass
+{{- end -}}
+{{- else -}}
+redisSentinelPass
+{{- end -}}
+{{- end -}}

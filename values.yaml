@@ -84,7 +84,7 @@ global:
     #   sentinelKeyName: ""
 
     # analytics allows overriding Redis settings used for analytics storage.
-    # If set, tyk-pump will use these values instead of global.redis.
+    # If set, these values are used by both Tyk Gateway and Tyk Pump.
     # analytics:
     #   addrs: []
     #   pass: ""
@@ -474,6 +474,9 @@ tyk-gateway:
     # topology spread constraints for pods
     topologySpreadConstraints: []
 
+    # priorityClassName for gateway pod assignment
+    priorityClassName: ""
+
     # analyticsEnabled property is used to enable/disable analytics.
     # If set to empty or nil, analytics will be enabled/disabled based on `global.components.pump`.
     analyticsEnabled: ""
@@ -691,6 +694,8 @@ tyk-operator:
 
   # affinity for tyk-operator-manager pod assignment
   affinity: {}
+  # priorityClassName for tyk-operator-manager pod assignment
+  priorityClassName: ""
   hostNetwork: false
 
   # rbac specifies necessary resources for kube-rbac-proxy.
@@ -909,6 +914,9 @@ tyk-pump:
 
     # affinity for pump pod assignment
     affinity: {}
+
+    # priorityClassName for pump pod assignment
+    priorityClassName: ""
 
     # extraContainers is a list of containers to be added to the pod
     # - name: sidecar
