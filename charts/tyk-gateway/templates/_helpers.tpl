@@ -111,6 +111,76 @@ redisSentinelPass
 {{- end -}}
 {{- end -}}
 
+{{- define "tyk-gateway.analytics_redis" -}}
+{{- $redis := default dict .Values.global.redis -}}
+{{- $analytics := default dict (index $redis "analytics") -}}
+{{- $merged := mergeOverwrite (deepCopy $redis) $analytics -}}
+{{- toYaml $merged -}}
+{{- end -}}
+
+{{- define "tyk-gateway.analytics_redis_url" -}}
+{{- $redis := include "tyk-gateway.analytics_redis" . | fromYaml -}}
+{{- if $redis.addrs -}}
+{{ join "," $redis.addrs }}
+{{- else if and $redis.host $redis.port -}}
+{{ $redis.host }}:{{ $redis.port }}
+{{- else -}}
+redis.{{ .Release.Namespace }}.svc:6379
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.analytics_redis_secret_name" -}}
+{{- $redis := include "tyk-gateway.analytics_redis" . | fromYaml -}}
+{{- if $redis.passSecret -}}
+{{- if $redis.passSecret.name -}}
+{{ $redis.passSecret.name }}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.analytics_redis_secret_key" -}}
+{{- $redis := include "tyk-gateway.analytics_redis" . | fromYaml -}}
+{{- if $redis.passSecret -}}
+{{- if $redis.passSecret.keyName -}}
+{{ $redis.passSecret.keyName }}
+{{- else -}}
+analyticsRedisPass
+{{- end -}}
+{{- else -}}
+analyticsRedisPass
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.analytics_redis_sentinel_secret_name" -}}
+{{- $redis := include "tyk-gateway.analytics_redis" . | fromYaml -}}
+{{- if and $redis.enableSentinel $redis.passSecret -}}
+{{- if $redis.passSecret.name -}}
+{{ $redis.passSecret.name }}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- else -}}
+secrets-{{ include "tyk-gateway.fullname" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "tyk-gateway.analytics_redis_sentinel_secret_key" -}}
+{{- $redis := include "tyk-gateway.analytics_redis" . | fromYaml -}}
+{{- if and $redis.enableSentinel $redis.passSecret -}}
+{{- if $redis.passSecret.sentinelKeyName -}}
+{{ $redis.passSecret.sentinelKeyName }}
+{{- else -}}
+analyticsRedisSentinelPass
+{{- end -}}
+{{- else -}}
+analyticsRedisSentinelPass
+{{- end -}}
+{{- end -}}
+
 {{- define "tyk-gateway.tplvalues.render" -}}
     {{- if typeIs "string" .value }}
         {{- tpl .value .context }}

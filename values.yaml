@@ -84,7 +84,8 @@ global:
     #   sentinelKeyName: ""
 
     # analytics allows overriding Redis settings used for analytics storage.
-    # If set, these values are used by both Tyk Gateway and Tyk Pump.
+    # If set, these values are used by Tyk Pump and by Tyk Gateway analytics storage.
+    # Main Tyk Gateway storage continues to use global.redis.
     # analytics:
     #   addrs: []
     #   pass: ""

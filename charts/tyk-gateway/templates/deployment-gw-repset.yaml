@@ -1,3 +1,4 @@
+{{- $analyticsRedis := include "tyk-gateway.analytics_redis" . | fromYaml }}
 apiVersion: apps/v1
 kind: {{ .Values.gateway.kind }}
 metadata:
@@ -213,6 +214,58 @@ spec:
                 key: {{ include "tyk-gateway.redis_secret_key" . }}
           - name: TYK_GW_STORAGE_USESSL
             value: "{{ default "false" .Values.global.redis.useSSL }}"
+          {{- if .Values.global.redis.analytics }}
+          - name: TYK_GW_ENABLESEPERATEANALYTICSSTORE
+            value: "true"
+          - name: TYK_GW_ANALYTICSSTORAGE_TYPE
+            value: "redis"
+          - name: TYK_GW_ANALYTICSSTORAGE_ADDRS
+            value: {{ include "tyk-gateway.analytics_redis_url" . | quote }}
+          {{- if $analyticsRedis.enableSentinel }}
+          - name: TYK_GW_ANALYTICSSTORAGE_SENTINELPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "tyk-gateway.analytics_redis_sentinel_secret_name" . }}
+                key: {{ include "tyk-gateway.analytics_redis_sentinel_secret_key" . }}
+          - name: TYK_GW_ANALYTICSSTORAGE_MASTERNAME
+            value: "{{- $analyticsRedis.masterName -}}"
+          {{- else if $analyticsRedis.enableCluster }}
+          - name: TYK_GW_ANALYTICSSTORAGE_ENABLECLUSTER
+            value: "true"
+          {{- else }}
+          - name: TYK_GW_ANALYTICSSTORAGE_ENABLECLUSTER
+            value: "false"
+          {{- end }}
+          - name: TYK_GW_ANALYTICSSTORAGE_DATABASE
+            value: "{{ default "0" $analyticsRedis.storage.database }}"
+          - name: TYK_GW_ANALYTICSSTORAGE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "tyk-gateway.analytics_redis_secret_name" . }}
+                key: {{ include "tyk-gateway.analytics_redis_secret_key" . }}
+          - name: TYK_GW_ANALYTICSSTORAGE_USESSL
+            value: "{{ default "false" $analyticsRedis.useSSL }}"
+          {{- if $analyticsRedis.sslInsecureSkipVerify }}
+          - name: TYK_GW_ANALYTICSSTORAGE_SSLINSECURESKIPVERIFY
+            value: "{{ $analyticsRedis.sslInsecureSkipVerify }}"
+          {{- end }}
+          {{- if $analyticsRedis.useSSL }}
+          - name: TYK_GW_ANALYTICSSTORAGE_TLSMAXVERSION
+            value: "{{ $analyticsRedis.tlsMaxVersion }}"
+          - name: TYK_GW_ANALYTICSSTORAGE_TLSMINVERSION
+            value: "{{ $analyticsRedis.tlsMinVersion }}"
+          {{- end }}
+          {{- if and $analyticsRedis.useSSL $analyticsRedis.caFile }}
+          - name: TYK_GW_ANALYTICSSTORAGE_CAFILE
+            value: "{{ $analyticsRedis.caFile }}"
+          {{- end }}
+          {{- if and $analyticsRedis.useSSL $analyticsRedis.certFile $analyticsRedis.keyFile }}
+          - name: TYK_GW_ANALYTICSSTORAGE_CERTFILE
+            value: "{{ $analyticsRedis.certFile }}"
+          - name: TYK_GW_ANALYTICSSTORAGE_KEYFILE
+            value: "{{ $analyticsRedis.keyFile }}"
+          {{- end }}
+          {{- end }}
           - name: TYK_GW_SECRET
             valueFrom:
               secretKeyRef:
